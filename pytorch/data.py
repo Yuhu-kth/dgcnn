@@ -37,15 +37,25 @@ def load_data(partition):
     all_label = []
     for h5_name in glob.glob(os.path.join(DATA_DIR, 'modelnet40_ply_hdf5_2048', 'ply_data_%s*.h5'%partition)):
         f = h5py.File(h5_name)
-        data = f['data'][:].astype('float32')
-        label = f['label'][:].astype('int64')
+        data = f['data'][:].astype('float32') #shape(2048,3)
+        label = f['label'][:].astype('int64') 
         f.close()
-        all_data.append(data)
+        all_data.append(data) # shape(420,2048,3)
         all_label.append(label)
     all_data = np.concatenate(all_data, axis=0)
     all_label = np.concatenate(all_label, axis=0)
+    print("all_data shape",all_data.shape)
+    print("all_label shape",all_label.shape)
     return all_data, all_label
 
+def load_data1(partition):
+    if partition == 'train':
+        all_data = np.load("/home/hannah/Thesis/dgcnn/pytorch/shapeNetDataPrep/chair/alldata.npy")[:2240].astype("float32")
+        all_label = np.load("/home/hannah/Thesis/dgcnn/pytorch/shapeNetDataPrep/chair/label.npy")[:2240].reshape((-1,1)).astype('int64')
+    else:
+        all_data = np.load("/home/hannah/Thesis/dgcnn/pytorch/shapeNetDataPrep/chair/alldata.npy")[2240:3000].astype("float32")
+        all_label = np.load("/home/hannah/Thesis/dgcnn/pytorch/shapeNetDataPrep/chair/label.npy")[2240:3000].reshape((-1,1)).astype('int64')  
+    return all_data, all_label
 
 def translate_pointcloud(pointcloud):
     xyz1 = np.random.uniform(low=2./3., high=3./2., size=[3])
@@ -77,11 +87,29 @@ class ModelNet40(Dataset):
 
     def __len__(self):
         return self.data.shape[0]
+    
 
+class ShapeNet(Dataset):
+    def __init__(self, num_points, partition):
+        self.data, self.label = load_data1(partition)
+        self.num_points = num_points
+        self.partition = partition        
+
+    def __getitem__(self, item):
+        pointcloud = self.data[item][:self.num_points]
+        label = self.label[item]
+        if self.partition == 'train':
+            pointcloud = translate_pointcloud(pointcloud)
+            np.random.shuffle(pointcloud)
+        return pointcloud, label
+
+    def __len__(self):
+        return self.data.shape[0]
+        return self.data.shape[0]
 
 if __name__ == '__main__':
-    train = ModelNet40(1024)
-    test = ModelNet40(1024, 'test')
-    for data, label in train:
-        print(data.shape)
-        print(label.shape)
+    # train = ModelNet40(1024)
+    # test = ModelNet40(1024, 'test')
+    alldata = ShapeNet(3000)
+    print(alldata.data.shape)
+    
