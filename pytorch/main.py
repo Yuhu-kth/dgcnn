@@ -16,13 +16,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from data import ModelNet40
+from data import ModelNet40,ShapeNet
 from model import PointNet, DGCNN
 import numpy as np
 from torch.utils.data import DataLoader
 from util import cal_loss, IOStream
 import sklearn.metrics as metrics
 
+torch.cuda.empty_cache()
 
 def _init_():
     if not os.path.exists('checkpoints'):
@@ -37,12 +38,22 @@ def _init_():
     os.system('cp data.py checkpoints' + '/' + args.exp_name + '/' + 'data.py.backup')
 
 def train(args, io):
-    train_loader = DataLoader(ModelNet40(partition='train', num_points=args.num_points), num_workers=8,
-                              batch_size=args.batch_size, shuffle=True, drop_last=True)
-    test_loader = DataLoader(ModelNet40(partition='test', num_points=args.num_points), num_workers=8,
-                             batch_size=args.test_batch_size, shuffle=True, drop_last=False)
-
+    # torch.cuda.empty_cache()
     device = torch.device("cuda" if args.cuda else "cpu")
+    train_loader = DataLoader(ShapeNet(partition='train', num_points=args.num_points), num_workers=8,
+                              batch_size=args.batch_size, shuffle=True, drop_last=True)
+    
+    test_loader = DataLoader(ShapeNet(partition='test', num_points=args.num_points), num_workers=8,
+                             batch_size=args.test_batch_size, shuffle=True, drop_last=False)
+   
+    # train_loader = DataLoader(ShapeNetTrain(partition='train', num_points=args.num_points), num_workers=8,
+    #                           batch_size=args.batch_size, shuffle=True, drop_last=True)
+    # print(train_loader)
+    # for data, label in train_loader:
+    #     data, label = data.to(device), label.to(device).squeeze()
+    # test_loader = DataLoader(ShapeNetTest(partition='test', num_points=args.num_points), num_workers=8,
+    #                           batch_size=args.batch_size, shuffle=True, drop_last=True)
+    
 
     #Try to load models
     if args.model == 'pointnet':
@@ -69,6 +80,7 @@ def train(args, io):
 
     best_test_acc = 0
     for epoch in range(args.epochs):
+        # torch.cuda.empty_cache()
         scheduler.step()
         ####################
         # Train
@@ -78,8 +90,12 @@ def train(args, io):
         model.train()
         train_pred = []
         train_true = []
+    
         for data, label in train_loader:
+            # torch.cuda.empty_cache()
+            # print(data.shape)
             data, label = data.to(device), label.to(device).squeeze()
+            # s = data.shape
             data = data.permute(0, 2, 1)
             batch_size = data.size()[0]
             opt.zero_grad()
@@ -94,6 +110,8 @@ def train(args, io):
             train_pred.append(preds.detach().cpu().numpy())
         train_true = np.concatenate(train_true)
         train_pred = np.concatenate(train_pred)
+        print(train_true)
+        print(train_pred)
         outstr = 'Train %d, loss: %.6f, train acc: %.6f, train avg acc: %.6f' % (epoch,
                                                                                  train_loss*1.0/count,
                                                                                  metrics.accuracy_score(
@@ -111,6 +129,7 @@ def train(args, io):
         test_pred = []
         test_true = []
         for data, label in test_loader:
+            torch.cuda.empty_cache()
             data, label = data.to(device), label.to(device).squeeze()
             data = data.permute(0, 2, 1)
             batch_size = data.size()[0]
@@ -134,9 +153,36 @@ def train(args, io):
             best_test_acc = test_acc
             torch.save(model.state_dict(), 'checkpoints/%s/models/model.t7' % args.exp_name)
 
+def train_shapeNet(args,io):
+    
+    device = torch.device("cuda" if args.cuda else "cpu")
+    model = DGCNN(args).to(device)
+    print("load model", str(model))
+    model = nn.DataParallel(model) #what is dataParallel
+    print("Let's use", torch.cuda.device_count(),"GPUs!")
+    if args.use_sgd:
+        print("Use SGD")
+        opt = optim.SGD(model.parameters(),lr=args.lr*100, momentum=args.momentum, weight_decay=1e-4)
+    else:
+        print("Use Adam")
+        opt = optim.Adam(model.parameters(),lr=args.lr,weight_decay=1e-4)
+    scheduler = CosineAnnealingLR(opt, args.epochs, eta_min=args.lr) #what is CosineAnnealing
+    criterion = cal_loss
+    best_test_acc = 0
+    for epoch in range(args.epochs):
+        scheduler.step()
+        ######  Train  ###########
+        train_loss = 0.0
+        count = 0.0
+        model.train_shapeNet() #why?
+        train_pred = []
+        train_true = []
+        
+    pass
 
+    
 def test(args, io):
-    test_loader = DataLoader(ModelNet40(partition='test', num_points=args.num_points),
+    test_loader = DataLoader(ShapeNet(partition='test', num_points=args.num_points),
                              batch_size=args.test_batch_size, shuffle=True, drop_last=False)
 
     device = torch.device("cuda" if args.cuda else "cpu")
@@ -153,6 +199,7 @@ def test(args, io):
     for data, label in test_loader:
 
         data, label = data.to(device), label.to(device).squeeze()
+        print(data.shape)
         data = data.permute(0, 2, 1)
         batch_size = data.size()[0]
         logits = model(data)
@@ -161,11 +208,30 @@ def test(args, io):
         test_pred.append(preds.detach().cpu().numpy())
     test_true = np.concatenate(test_true)
     test_pred = np.concatenate(test_pred)
+    print(test_true[:10])
+    print(test_true.shape)
+    print(test_pred[:10])
+    print(test_pred.shape)
     test_acc = metrics.accuracy_score(test_true, test_pred)
     avg_per_class_acc = metrics.balanced_accuracy_score(test_true, test_pred)
     outstr = 'Test :: test acc: %.6f, test avg acc: %.6f'%(test_acc, avg_per_class_acc)
     io.cprint(outstr)
 
+def predict(args,io):
+    #data path /home/hannah/Thesis/SP-GAN/models/pcds/chair_1_000150.npy
+    device = torch.device("cuda" if args.cuda else "cpu")
+    model = DGCNN(args).to(device)
+    model = nn.DataParallel(model)
+    model.load_state_dict(torch.load(args.model_path))
+    model = model.eval()
+    data = np.load("/home/hannah/Thesis/SP-GAN/models/pcds/chair_1_000150.npy").astype("float32")
+    predict_loader = DataLoader(data,batch_size=args.test_batch_size, shuffle=True, drop_last=False)
+    for data in predict_loader:
+        data = data.to(device).permute(0,2,1)
+        logits = model(data)
+        print(logits)
+        preds = logits.max(dim=1)[1]
+        print(preds)
 
 if __name__ == "__main__":
     # Training settings
@@ -175,9 +241,9 @@ if __name__ == "__main__":
     parser.add_argument('--model', type=str, default='dgcnn', metavar='N',
                         choices=['pointnet', 'dgcnn'],
                         help='Model to use, [pointnet, dgcnn]')
-    parser.add_argument('--dataset', type=str, default='modelnet40', metavar='N',
-                        choices=['modelnet40'])
-    parser.add_argument('--batch_size', type=int, default=32, metavar='batch_size',
+    parser.add_argument('--dataset', type=str, default='ShapeNet', metavar='N',
+                        choices=['ShapeNet'])
+    parser.add_argument('--batch_size', type=int, default=4, metavar='batch_size',
                         help='Size of batch)')
     parser.add_argument('--test_batch_size', type=int, default=16, metavar='batch_size',
                         help='Size of batch)')
@@ -195,7 +261,7 @@ if __name__ == "__main__":
                         help='random seed (default: 1)')
     parser.add_argument('--eval', type=bool,  default=False,
                         help='evaluate the model')
-    parser.add_argument('--num_points', type=int, default=1024,
+    parser.add_argument('--num_points', type=int, default=3000,
                         help='num of points to use')
     parser.add_argument('--dropout', type=float, default=0.5,
                         help='dropout rate')
@@ -224,4 +290,5 @@ if __name__ == "__main__":
     if not args.eval:
         train(args, io)
     else:
-        test(args, io)
+        # test(args, io)
+        predict(args,io)
