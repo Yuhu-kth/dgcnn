@@ -10,6 +10,7 @@
 
 from __future__ import print_function
 import os
+import glob
 import argparse
 import torch
 import torch.nn as nn
@@ -224,14 +225,32 @@ def predict(args,io):
     model = nn.DataParallel(model)
     model.load_state_dict(torch.load(args.model_path))
     model = model.eval()
-    data = np.load("/home/hannah/Thesis/SP-GAN/models/pcds/chair_1_000150.npy").astype("float32")
+    data = data_prep()
+    print(data.shape)
+    preds = []
     predict_loader = DataLoader(data,batch_size=args.test_batch_size, shuffle=True, drop_last=False)
     for data in predict_loader:
         data = data.to(device).permute(0,2,1)
         logits = model(data)
-        print(logits)
-        preds = logits.max(dim=1)[1]
-        print(preds)
+        # print(logits)
+        for i in logits.max(dim=1)[1].cpu().numpy():
+            preds.append(i)
+        # print(preds)
+    print(preds[:10])
+    with open('/home/hannah/Thesis/dgcnn/labels.txt', 'w') as f:
+        for pred in preds:
+            f.write(str(pred))
+            f.write('\n')
+
+def data_prep():
+    alldata = []
+    files = glob.glob('/home/hannah/Thesis/SP-GAN/models/pcds/*')
+    for f in files:
+        data = np.load(f).astype("float32")
+        alldata.append(data)
+    alldata = np.asarray(alldata).reshape(-1,2048,3)
+    print(alldata.shape)
+    return alldata 
 
 if __name__ == "__main__":
     # Training settings
@@ -245,7 +264,7 @@ if __name__ == "__main__":
                         choices=['ShapeNet'])
     parser.add_argument('--batch_size', type=int, default=4, metavar='batch_size',
                         help='Size of batch)')
-    parser.add_argument('--test_batch_size', type=int, default=16, metavar='batch_size',
+    parser.add_argument('--test_batch_size', type=int, default=8, metavar='batch_size',
                         help='Size of batch)')
     parser.add_argument('--epochs', type=int, default=250, metavar='N',
                         help='number of episode to train ')
@@ -290,5 +309,8 @@ if __name__ == "__main__":
     if not args.eval:
         train(args, io)
     else:
+
+        torch.cuda.empty_cache()
+        # data_prep()
         # test(args, io)
         predict(args,io)
