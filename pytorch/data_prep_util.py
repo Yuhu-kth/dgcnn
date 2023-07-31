@@ -221,6 +221,22 @@ def dataPairLabel():
     print("the first 10 filenames:",datafilename[:10])
     print("all data array shape is :",len(data))
 
+def newDataProcess():
+    all = []
+    labels = []
+    labelPath = '/home/hannah/Thesis/dgcnn/pytorch/shapeNetDataPrep/GeneratedPCD/manual.txt'
+    files = glob.glob('/home/hannah/Thesis/SP-GAN/models/731pcds/*')
+    for file in files:
+        data = np.load(file)
+        all.append(data)
+    alldata = np.array(all)
+    # np.save('/home/hannah/Thesis/dgcnn/pytorch/shapeNetDataPrep/GeneratedPCD/newData',alldata)
+    print(alldata.shape)
+    for line in open(labelPath):
+        labels.append(line.rstrip())
+    # np.save('/home/hannah/Thesis/dgcnn/pytorch/shapeNetDataPrep/GeneratedPCD/label',labels)
+    print(len(labels))
+    
 if __name__ == '__main__':
 
     # obj_filenames = get_obj_filenames()
@@ -230,10 +246,12 @@ if __name__ == '__main__':
     # print(cmd)
     # plot_pcd()
     # dataPairLabel()
-    print("data preprocessing is done")
-    data = np.load('/home/hannah/Thesis/dgcnn/pytorch/shapeNetDataPrep/chair/alldata.npy')
-    labels = np.load('/home/hannah/Thesis/dgcnn/pytorch/shapeNetDataPrep/chair/label.npy')
-    print("data length:",len(data))
-    print("the shape of each pcd:",data[0].shape)
-    print("number of labels:",len(labels))
+
+    # print("data preprocessing is done, labels paired with data, data is downsampled")
+    # data = np.load('/home/hannah/Thesis/dgcnn/pytorch/shapeNetDataPrep/chair/alldata.npy')
+    # labels = np.load('/home/hannah/Thesis/dgcnn/pytorch/shapeNetDataPrep/chair/label.npy')
+    # print("data length:",len(data))
+    # print("the shape of each pcd:",data[0].shape)
+    # print("number of labels:",len(labels))
+    newDataProcess()
    
